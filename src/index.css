@@ -1,0 +1,154 @@
+@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+@theme {
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Plus Jakarta Sans", "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+:root {
+  --safeher-canvas: #F8F9FB;
+  --safeher-ink: #0F172A;
+  --safeher-muted: #475569;
+  --safeher-sos: #DC2626;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    background-color: var(--safeher-canvas);
+    color: var(--safeher-ink);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background-color: #F8F9FB;
+    background-image:
+      radial-gradient(60% 45% at 15% 0%, rgba(220, 38, 38, 0.045) 0%, transparent 70%),
+      radial-gradient(50% 40% at 88% 12%, rgba(239, 68, 68, 0.04) 0%, transparent 70%);
+    background-attachment: fixed;
+    color: #0F172A;
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: var(--font-display);
+  }
+
+  select option {
+    background-color: #FFFFFF;
+    color: #0F172A;
+  }
+}
+
+/* Crisp Pure White Structural Card */
+.surface-white {
+  background-color: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  box-shadow: 0 8px 24px -14px rgba(15, 23, 42, 0.1);
+}
+
+/* Soft Rose-White Focal Card with Subtle Crimson Hairline */
+.surface-red {
+  background: linear-gradient(155deg, #FFFFFF 0%, #FFF5F5 100%);
+  border: 1px solid #FECACA;
+  box-shadow: 0 12px 30px -16px rgba(220, 38, 38, 0.18);
+}
+
+/* Sunken Neutral Well for Segmented Controls & Sub-Panels */
+.surface-well {
+  background-color: #F1F5F9;
+  border: 1px solid #E2E8F0;
+}
+
+/* Crisp White Form Input */
+.surface-input {
+  background-color: #FFFFFF;
+  border: 1px solid #CBD5E1;
+  color: #0F172A;
+}
+
+.surface-input::placeholder {
+  color: #94A3B8;
+}
+
+.surface-input:focus {
+  border-color: #DC2626;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+  outline: none;
+}
+
+/* Primary Urgent Crimson Red CTA Button */
+.btn-red {
+  background: linear-gradient(180deg, #EF4444 0%, #DC2626 100%);
+  border: 1px solid #B91C1C;
+  color: #FFFFFF;
+  box-shadow: 0 6px 16px -4px rgba(220, 38, 38, 0.35);
+}
+
+.btn-red:hover {
+  background: linear-gradient(180deg, #DC2626 0%, #B91C1C 100%);
+}
+
+/* Secondary Pure White Outline Button */
+.btn-white {
+  background-color: #FFFFFF;
+  border: 1px solid #CBD5E1;
+  color: #0F172A;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.btn-white:hover {
+  background-color: #FEF2F2;
+  border-color: #FCA5A5;
+  color: #991B1B;
+}
+
+/* Dominant 3D Crimson Red SOS Orb */
+.sos-red-orb {
+  background: radial-gradient(
+    circle at 34% 25%,
+    #FCA5A5 0%,
+    #EF4444 30%,
+    #DC2626 70%,
+    #991B1B 100%
+  );
+  border: 3px solid #FFFFFF;
+  box-shadow:
+    0 22px 48px -10px rgba(220, 38, 38, 0.5),
+    0 0 0 12px rgba(220, 38, 38, 0.14),
+    inset 0 2px 12px rgba(255, 255, 255, 0.35);
+}
+
+.sos-red-orb:hover {
+  box-shadow:
+    0 26px 56px -10px rgba(220, 38, 38, 0.6),
+    0 0 0 15px rgba(220, 38, 38, 0.2),
+    inset 0 2px 14px rgba(255, 255, 255, 0.42);
+}
+
+@keyframes sosStrobe {
+  0%, 100% {
+    opacity: 0.04;
+  }
+  50% {
+    opacity: 0.22;
+  }
+}
+
+.sos-strobe-overlay {
+  animation: sosStrobe 0.65s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sos-strobe-overlay {
+    animation: none;
+    opacity: 0.1;
+  }
+}
+
+/* Ensure Leaflet map stays underneath app headers and modals */
+.leaflet-container {
+  z-index: 10 !important;
+  font-family: var(--font-sans) !important;
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Safe Her",
+  "description": "Mobile-first women's safety and offline-capable emergency SOS alert Progressive Web App with live location sharing, siren, shake detection, fake calls, and nearby help finder.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": []
+}
