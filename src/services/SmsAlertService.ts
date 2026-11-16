@@ -1,13 +1,29 @@
 import type {CachedCoordinates, EmergencyContact} from '../types/safety';
 
 /**
- * NativeSmsTransportAdapter provides a clean plug-in seam for a future Capacitor/Cordova
- * native Android/iOS wrapper (e.g., Android SmsManager via custom Capacitor plugin)
- * so cellular SMS alerts can also transmit silently in the background without opening an OS composer.
+ * NativeSmsTransportAdapter provides a plug-in seam for a Capacitor/Cordova
+ * native Android wrapper (`Capacitor.Plugins.SafeHerSms` -> Android `SmsManager`)
+ * so SMS alerts transmit silently through the device's default Messenger/carrier SMS
+ * to all stored emergency contacts with ZERO "Send" prompt.
  */
 export interface NativeSmsTransportAdapter {
   isAvailable(): boolean;
   sendSilentSms(recipients: string[], message: string): Promise<boolean>;
+}
+
+interface CapacitorSmsPluginBridge {
+  sendSilentSms(options: {recipients: string[]; message: string}): Promise<{sent?: number} | boolean>;
+}
+
+export interface SmsDeliveryStatus {
+  mode:
+    | 'native-default-messenger'
+    | 'server-sms-gateway'
+    | 'guardian-stream-only'
+    | 'queued-offline';
+  provider?: string | null;
+  sentCount: number;
+  totalCount: number;
 }
 
 export interface AlertDispatchResult {
@@ -17,6 +33,7 @@ export interface AlertDispatchResult {
   recipientCount: number;
   activeViewers?: number;
   queuedForAutoRetry?: boolean;
+  smsDelivery?: SmsDeliveryStatus;
 }
 
 interface PendingDispatchPayload {
@@ -46,6 +63,71 @@ class SmsAlertServiceClass {
 
   registerNativeAdapter(adapter: NativeSmsTransportAdapter): void {
     this.nativeAdapter = adapter;
+  }
+
+  private getCapacitorSmsPlugin(): CapacitorSmsPluginBridge | null {
+    if (typeof window === 'undefined') return null;
+    const cap = (
+      window as unknown as {
+        Capacitor?: {
+          Plugins?: {
+            SafeHerSms?: CapacitorSmsPluginBridge;
+          };
+        };
+      }
+    ).Capacitor;
+    const plugin = cap?.Plugins?.SafeHerSms;
+    if (plugin && typeof plugin.sendSilentSms === 'function') {
+      return plugin;
+    }
+    return null;
+  }
+
+  isNativeMessengerPluginConnected(): boolean {
+    return Boolean(this.nativeAdapter?.isAvailable() || this.getCapacitorSmsPlugin());
+  }
+
+  async getServerSmsStatus(): Promise<{configured: boolean; provider: string | null}> {
+    try {
+      const res = await fetch('/api/alerts/sms-status');
+      if (!res.ok) return {configured: false, provider: null};
+      const data = (await res.json()) as {configured?: boolean; provider?: string | null};
+      return {
+        configured: Boolean(data.configured),
+        provider: data.provider ?? null,
+      };
+    } catch {
+      return {configured: false, provider: null};
+    }
+  }
+
+  private async trySendSilentDefaultMessenger(
+    recipients: string[],
+    message: string,
+  ): Promise<boolean> {
+    if (recipients.length === 0) return false;
+
+    if (this.nativeAdapter && this.nativeAdapter.isAvailable()) {
+      try {
+        const ok = await this.nativeAdapter.sendSilentSms(recipients, message);
+        if (ok) return true;
+      } catch {
+        // Fall through to Capacitor bridge check
+      }
+    }
+
+    const capPlugin = this.getCapacitorSmsPlugin();
+    if (capPlugin) {
+      try {
+        const result = await capPlugin.sendSilentSms({recipients, message});
+        if (typeof result === 'boolean') return result;
+        return typeof result?.sent === 'number' ? result.sent > 0 : true;
+      } catch {
+        return false;
+      }
+    }
+
+    return false;
   }
 
   buildGoogleMapsLink(coords: CachedCoordinates | null): string | null {
@@ -168,12 +250,13 @@ class SmsAlertServiceClass {
   }
 
   /**
-   * Completely automated emergency alert & live location dispatch with ZERO user "Send" request:
-   * - Never opens an unsolicited OS `sms:` Send prompt.
-   * - Broadcasts automatically to `/api/alerts/dispatch` (which atomically creates/links the live
-   *   tracking session and pushes real-time SSE alerts to all saved Trusted Contacts).
-   * - Dispatches silent background SMS via native Capacitor SmsManager when wrapped on Android.
-   * - Broadcasts via local BroadcastChannel & queues for instant auto-retry if temporarily offline.
+   * Automated emergency alert & live location dispatch with ZERO user "Send" request:
+   * 1. Never opens an unsolicited OS `sms:` Send prompt.
+   * 2. If running inside Android Capacitor with `SafeHerSms` (`SmsManager`), silently sends
+   *    the alert + live tracking link through the phone's default Messenger/carrier SMS to all
+   *    stored emergency contacts with zero Send confirmation.
+   * 3. Simultaneously dispatches to `/api/alerts/dispatch` which streams real-time SSE updates
+   *    to all saved contacts AND triggers automated server-side SMS relay when configured.
    */
   async dispatchEmergencyAlert(params: {
     sessionId: string;
@@ -206,11 +289,12 @@ class SmsAlertServiceClass {
       };
     }
 
-    // Optional silent native SMS in parallel if running inside Capacitor Android wrapper
-    if (this.nativeAdapter && this.nativeAdapter.isAvailable()) {
-      const phones = trusted.map((c) => c.phone.replace(/[^\d+]/g, ''));
-      void this.nativeAdapter.sendSilentSms(phones, messageBody).catch(() => {});
-    }
+    const phones = Array.from(
+      new Set(trusted.map((c) => c.phone.replace(/[^\d+]/g, '')).filter(Boolean)),
+    );
+
+    // 1. Silent dispatch via phone's default carrier SMS / Messenger when Capacitor SafeHerSms is present
+    const nativeSent = await this.trySendSilentDefaultMessenger(phones, messageBody);
 
     const payload: PendingDispatchPayload = {
       sessionId: params.sessionId,
@@ -232,7 +316,7 @@ class SmsAlertServiceClass {
       queuedAt: Date.now(),
     };
 
-    // Immediate local device multi-tab broadcast
+    // 2. Immediate local device multi-tab broadcast
     this.broadcastLocalChannel(payload);
 
     const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : false;
@@ -240,27 +324,74 @@ class SmsAlertServiceClass {
     if (!isOnline) {
       this.enqueuePendingDispatch(payload);
       return {
-        channel: 'offline-sms',
+        channel: nativeSent ? 'online-live' : 'offline-sms',
         smsUri,
         messageBody,
         recipientCount: trusted.length,
-        queuedForAutoRetry: true,
+        queuedForAutoRetry: !nativeSent,
+        smsDelivery: nativeSent
+          ? {
+              mode: 'native-default-messenger',
+              provider: 'android-sms-manager',
+              sentCount: trusted.length,
+              totalCount: trusted.length,
+            }
+          : {
+              mode: 'queued-offline',
+              provider: null,
+              sentCount: 0,
+              totalCount: trusted.length,
+            },
       };
     }
 
-    // Online: 100% silent automated backend + SSE Guardian push — NEVER prompts user with a Send dialog
+    // 3. Automated backend Guardian SSE + Server SMS Relay (never prompts user with a Send dialog)
     try {
       const res = await fetch('/api/alerts/dispatch', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload),
+        body: JSON.stringify({...payload, sendSms: !nativeSent}),
       });
 
       if (!res.ok) {
         throw new Error('Alert endpoint returned non-200');
       }
 
-      const responseData = (await res.json()) as {activeViewers?: number};
+      const responseData = (await res.json()) as {
+        activeViewers?: number;
+        smsDelivery?: {
+          status: 'sent' | 'partial' | 'unconfigured' | 'failed';
+          provider: string | null;
+          sentCount: number;
+          totalCount: number;
+        };
+      };
+
+      const serverSmsSent =
+        responseData.smsDelivery &&
+        (responseData.smsDelivery.status === 'sent' ||
+          responseData.smsDelivery.status === 'partial');
+
+      const smsDelivery: SmsDeliveryStatus = nativeSent
+        ? {
+            mode: 'native-default-messenger',
+            provider: 'android-sms-manager',
+            sentCount: trusted.length,
+            totalCount: trusted.length,
+          }
+        : serverSmsSent
+          ? {
+              mode: 'server-sms-gateway',
+              provider: responseData.smsDelivery?.provider ?? null,
+              sentCount: responseData.smsDelivery?.sentCount ?? trusted.length,
+              totalCount: responseData.smsDelivery?.totalCount ?? trusted.length,
+            }
+          : {
+              mode: 'guardian-stream-only',
+              provider: responseData.smsDelivery?.provider ?? null,
+              sentCount: 0,
+              totalCount: trusted.length,
+            };
 
       return {
         channel: 'online-live',
@@ -268,19 +399,34 @@ class SmsAlertServiceClass {
         messageBody,
         recipientCount: trusted.length,
         activeViewers: responseData.activeViewers ?? 0,
+        smsDelivery,
       };
     } catch {
       this.enqueuePendingDispatch(payload);
       return {
-        channel: 'offline-sms',
+        channel: nativeSent ? 'online-live' : 'offline-sms',
         smsUri,
         messageBody,
         recipientCount: trusted.length,
-        queuedForAutoRetry: true,
+        queuedForAutoRetry: !nativeSent,
+        smsDelivery: nativeSent
+          ? {
+              mode: 'native-default-messenger',
+              provider: 'android-sms-manager',
+              sentCount: trusted.length,
+              totalCount: trusted.length,
+            }
+          : {
+              mode: 'queued-offline',
+              provider: null,
+              sentCount: 0,
+              totalCount: trusted.length,
+            },
       };
     }
   }
 }
 
 export const SmsAlertService = new SmsAlertServiceClass();
+
 

@@ -9,6 +9,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import {ShakeService} from '../services/ShakeService';
+import {SmsAlertService} from '../services/SmsAlertService';
 import {TriggerService} from '../services/TriggerService';
 import type {AppSettings, SOSLogEntry} from '../types/safety';
 import {PWAInstallButton} from './PWAInstallButton';
@@ -38,6 +39,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [shakeMagnitude, setShakeMagnitude] = useState(0);
   const [shakePeaks, setShakePeaks] = useState(0);
   const [showPermissionsWizard, setShowPermissionsWizard] = useState(false);
+  const [serverSmsStatus, setServerSmsStatus] = useState<{
+    configured: boolean;
+    provider: string | null;
+  }>({configured: false, provider: null});
+
+  useEffect(() => {
+    void SmsAlertService.getServerSmsStatus().then(setServerSmsStatus);
+  }, []);
 
   useEffect(() => {
     if (!testingShake) return;
@@ -164,12 +173,45 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   Zero-Prompt Automated SOS Live Location Share
                 </div>
                 <div className="text-xs text-slate-600 leading-relaxed mt-0.5">
-                  Automatically streams live GPS coordinates every 3 seconds directly to all saved contacts&apos; Guardian channels when SOS activates—without ever asking you to press Send. Falls back to cellular SMS only if offline.
+                  Automatically streams live GPS coordinates every 3 seconds directly to all saved contacts with zero Send prompt. Sends silent carrier SMS when Capacitor <code className="font-mono text-[11px] text-red-700">SafeHerSms</code> (<code className="font-mono text-[11px] text-red-700">SmsManager</code>) or Server SMS Relay is active; web browsers otherwise block websites from silently sending SMS through the phone&apos;s default Messages app without a Send tap.
                 </div>
               </div>
               <span className="text-xs font-bold text-emerald-700 whitespace-nowrap shrink-0">
                 Always Active
               </span>
+            </div>
+
+            <div className="pt-3 border-t border-red-200 text-xs space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-slate-700 font-medium">Real-Time Guardian Stream (Zero Prompt)</span>
+                <span className="font-semibold text-emerald-700 shrink-0">Ready</span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-slate-700 font-medium">Phone Default Messenger (Capacitor SmsManager)</span>
+                <span
+                  className={`font-semibold shrink-0 ${
+                    SmsAlertService.isNativeMessengerPluginConnected()
+                      ? 'text-emerald-700'
+                      : 'text-slate-600'
+                  }`}
+                >
+                  {SmsAlertService.isNativeMessengerPluginConnected()
+                    ? 'Native SmsManager Connected'
+                    : 'Android APK Bridge Ready'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-slate-700 font-medium">Automated Server SMS Relay</span>
+                <span
+                  className={`font-semibold shrink-0 ${
+                    serverSmsStatus.configured ? 'text-emerald-700' : 'text-slate-600'
+                  }`}
+                >
+                  {serverSmsStatus.configured
+                    ? `Active (${serverSmsStatus.provider})`
+                    : 'Not Configured on Server'}
+                </span>
+              </div>
             </div>
 
             <div>

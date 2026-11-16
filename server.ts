@@ -78,6 +78,142 @@ function normalizePhone(raw: string): string {
   return digits;
 }
 
+function formatE164Phone(raw: string): string {
+  const cleaned = String(raw || '').replace(/[^\d+]/g, '');
+  if (!cleaned) return '';
+  if (cleaned.startsWith('+')) return cleaned;
+  const digits = cleaned.replace(/\D/g, '');
+  if (!digits) return '';
+  const defaultCode = (process.env.DEFAULT_COUNTRY_CODE || '+91').trim();
+  if (digits.length === 10) {
+    return `${defaultCode.startsWith('+') ? defaultCode : `+${defaultCode}`}${digits}`;
+  }
+  return `+${digits}`;
+}
+
+interface ServerSmsDeliveryResult {
+  status: 'sent' | 'partial' | 'unconfigured' | 'failed';
+  provider: 'twilio' | 'webhook' | null;
+  sentCount: number;
+  totalCount: number;
+}
+
+function getConfiguredSmsProvider(): 'twilio' | 'webhook' | null {
+  const twilioSid = process.env.TWILIO_ACCOUNT_SID?.trim();
+  const twilioToken = process.env.TWILIO_AUTH_TOKEN?.trim();
+  const twilioFrom = process.env.TWILIO_FROM_NUMBER?.trim();
+  if (twilioSid && twilioToken && twilioFrom) return 'twilio';
+  if (process.env.SMS_WEBHOOK_URL?.trim()) return 'webhook';
+  return null;
+}
+
+async function dispatchAutomatedServerSms(params: {
+  recipients: Array<{name: string; phone: string}>;
+  message: string;
+  trackingUrl: string;
+  mapsUrl: string;
+  userName: string;
+  mode: 'sos' | 'live';
+}): Promise<ServerSmsDeliveryResult> {
+  const uniqueNumbers = Array.from(
+    new Set(params.recipients.map((r) => formatE164Phone(r.phone)).filter((n) => n.length >= 8)),
+  );
+  if (uniqueNumbers.length === 0) {
+    return {status: 'failed', provider: getConfiguredSmsProvider(), sentCount: 0, totalCount: 0};
+  }
+
+  const twilioSid = process.env.TWILIO_ACCOUNT_SID?.trim();
+  const twilioToken = process.env.TWILIO_AUTH_TOKEN?.trim();
+  const twilioFrom = process.env.TWILIO_FROM_NUMBER?.trim();
+
+  if (twilioSid && twilioToken && twilioFrom) {
+    const authHeader = `Basic ${Buffer.from(`${twilioSid}:${twilioToken}`).toString('base64')}`;
+    const endpoint = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilioSid)}/Messages.json`;
+
+    const results = await Promise.allSettled(
+      uniqueNumbers.map(async (to) => {
+        const body = new URLSearchParams({
+          To: to,
+          From: twilioFrom,
+          Body: params.message,
+        });
+        const resp = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            Authorization: authHeader,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: body.toString(),
+          signal: AbortSignal.timeout(4500),
+        });
+        if (!resp.ok) {
+          throw new Error(`Twilio status ${resp.status}`);
+        }
+        return true;
+      }),
+    );
+
+    const sentCount = results.filter((r) => r.status === 'fulfilled').length;
+    return {
+      status: sentCount === uniqueNumbers.length ? 'sent' : sentCount > 0 ? 'partial' : 'failed',
+      provider: 'twilio',
+      sentCount,
+      totalCount: uniqueNumbers.length,
+    };
+  }
+
+  const webhookUrl = process.env.SMS_WEBHOOK_URL?.trim();
+  if (webhookUrl) {
+    try {
+      const headers: Record<string, string> = {'Content-Type': 'application/json'};
+      const secret = process.env.SMS_WEBHOOK_SECRET?.trim();
+      if (secret) {
+        headers.Authorization = `Bearer ${secret}`;
+      }
+      const resp = await fetch(webhookUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          recipients: params.recipients.map((r) => ({
+            name: r.name,
+            phone: formatE164Phone(r.phone),
+          })),
+          message: params.message,
+          trackingUrl: params.trackingUrl,
+          mapsUrl: params.mapsUrl,
+          userName: params.userName,
+          mode: params.mode,
+          timestamp: Date.now(),
+        }),
+        signal: AbortSignal.timeout(4500),
+      });
+      if (!resp.ok) {
+        throw new Error(`Webhook status ${resp.status}`);
+      }
+      return {
+        status: 'sent',
+        provider: 'webhook',
+        sentCount: uniqueNumbers.length,
+        totalCount: uniqueNumbers.length,
+      };
+    } catch {
+      return {
+        status: 'failed',
+        provider: 'webhook',
+        sentCount: 0,
+        totalCount: uniqueNumbers.length,
+      };
+    }
+  }
+
+  return {
+    status: 'unconfigured',
+    provider: null,
+    sentCount: 0,
+    totalCount: uniqueNumbers.length,
+  };
+}
+
 const DATA_DIR = path.join(__dirname, '.runtime-data');
 const SESSIONS_FILE = path.join(DATA_DIR, 'tracking-sessions.json');
 const GUARDIANS_FILE = path.join(DATA_DIR, 'guardian-pairings.json');
@@ -234,6 +370,14 @@ async function startServer() {
 
   app.get('/api/health', (_req: Request, res: Response) => {
     res.json({ok: true, timestamp: Date.now()});
+  });
+
+  app.get('/api/alerts/sms-status', (_req: Request, res: Response) => {
+    const provider = getConfiguredSmsProvider();
+    res.json({
+      configured: provider !== null,
+      provider,
+    });
   });
 
   // Pre-pair trusted contacts so SOS & live location auto-push with zero Send prompt
@@ -531,7 +675,7 @@ async function startServer() {
   });
 
   // Automated zero-click SOS & Live Location dispatch endpoint
-  app.post('/api/alerts/dispatch', (req: Request, res: Response) => {
+  app.post('/api/alerts/dispatch', async (req: Request, res: Response) => {
     const {
       sessionId,
       userId,
@@ -544,6 +688,7 @@ async function startServer() {
       trackingUrl,
       mapsUrl,
       contacts,
+      sendSms = true,
     } = req.body ?? {};
     if (!Array.isArray(contacts)) {
       res.status(400).json({error: 'Contacts array is required'});
@@ -665,12 +810,30 @@ async function startServer() {
       savePersistedState();
     }
 
+    const smsDelivery: ServerSmsDeliveryResult =
+      sendSms && formattedContacts.length > 0 && record.message
+        ? await dispatchAutomatedServerSms({
+            recipients: formattedContacts.map((c) => ({name: c.name, phone: c.phone})),
+            message: record.message,
+            trackingUrl: record.trackingUrl,
+            mapsUrl: record.mapsUrl,
+            userName: record.userName,
+            mode: alertMode,
+          })
+        : {
+            status: 'unconfigured',
+            provider: getConfiguredSmsProvider(),
+            sentCount: 0,
+            totalCount: formattedContacts.length,
+          };
+
     res.json({
       dispatched: true,
       alertId: record.id,
       recipientCount: record.contacts.length,
       dispatchedAt: record.dispatchedAt,
       activeViewers: linkedSession ? countActiveViewersForSession(linkedSession) : 0,
+      smsDelivery,
     });
   });
 

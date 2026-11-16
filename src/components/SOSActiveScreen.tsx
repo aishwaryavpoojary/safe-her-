@@ -244,7 +244,13 @@ export const SOSActiveScreen: React.FC<SOSActiveScreenProps> = ({
                 <div className="flex items-center justify-between gap-2 text-xs">
                   <span className="inline-flex items-center gap-1.5 font-bold text-emerald-700">
                     <Radio className="w-4 h-4" />
-                    <span>Live Location Auto-Shared · Zero Action Needed</span>
+                    <span>
+                      {dispatchResult?.smsDelivery?.mode === 'native-default-messenger'
+                        ? 'Auto-Sent via Default Messenger · Zero Prompt'
+                        : dispatchResult?.smsDelivery?.mode === 'server-sms-gateway'
+                          ? 'Auto-Sent via SMS & Live Map · Zero Prompt'
+                          : 'Live Location Auto-Shared · Zero Prompt'}
+                    </span>
                   </span>
                   <span className="font-mono text-red-700 font-semibold tabular-nums">
                     {liveSession
@@ -260,9 +266,13 @@ export const SOSActiveScreen: React.FC<SOSActiveScreenProps> = ({
                 <p className="text-xs text-slate-700 leading-relaxed">
                   {trustedContacts.length === 0
                     ? 'Continuous 3s live GPS stream is active. Add trusted contacts or call 112 / 1091 directly below.'
-                    : dispatchResult?.channel === 'offline-sms'
-                      ? `Offline Mode: Alert for all ${trustedContacts.length} trusted contacts is queued for silent automatic delivery as soon as signal returns (zero Send prompt).`
-                      : `Your live tracking map was pushed automatically to all ${trustedContacts.length} trusted contacts with zero Send confirmation—updating every 3 seconds.`}
+                    : dispatchResult?.smsDelivery?.mode === 'native-default-messenger'
+                      ? `Silent SMS with your live location link was sent automatically through your phone's default Messenger (SmsManager) to all ${trustedContacts.length} saved emergency contacts with zero Send prompt.`
+                      : dispatchResult?.smsDelivery?.mode === 'server-sms-gateway'
+                        ? `Automated SMS (${dispatchResult.smsDelivery.sentCount}/${trustedContacts.length}) + continuous 3s live tracking map were delivered to your contacts' default Messages inbox without asking you to tap Send.`
+                        : dispatchResult?.channel === 'offline-sms'
+                          ? `Offline Mode: Alert for all ${trustedContacts.length} trusted contacts is queued for silent automatic delivery as soon as signal returns (zero Send prompt).`
+                          : `Live 3-second GPS tracking pushed automatically to all ${trustedContacts.length} trusted contacts with zero Send prompt. (Note: Standard web browsers block silent background access to the phone's default SMS app without a Send tap; configure a Server SMS Relay or Android Capacitor build for silent carrier SMS.)`}
                 </p>
 
                 {/* Per-Contact Automated Dispatch Confirmation */}
@@ -280,9 +290,13 @@ export const SOSActiveScreen: React.FC<SOSActiveScreenProps> = ({
                         <span className="text-emerald-700 font-semibold whitespace-nowrap shrink-0 flex items-center gap-1">
                           <Check className="w-3.5 h-3.5" />
                           <span>
-                            {dispatchResult?.channel === 'offline-sms'
-                              ? 'Queued Auto-Send'
-                              : 'Auto-Shared Live'}
+                            {dispatchResult?.smsDelivery?.mode === 'native-default-messenger'
+                              ? 'SMS Auto-Sent'
+                              : dispatchResult?.smsDelivery?.mode === 'server-sms-gateway'
+                                ? 'SMS + Live Sent'
+                                : dispatchResult?.channel === 'offline-sms'
+                                  ? 'Queued Auto-Send'
+                                  : 'Live Auto-Shared'}
                           </span>
                         </span>
                       </div>
