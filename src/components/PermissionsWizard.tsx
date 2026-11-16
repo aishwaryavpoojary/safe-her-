@@ -1,29 +1,50 @@
 import React, {useEffect, useState} from 'react';
-import {Bell, Check, Compass, MapPin, Smartphone, Vibrate} from 'lucide-react';
+import {
+  Bell,
+  Check,
+  Compass,
+  MapPin,
+  MessageSquare,
+  Smartphone,
+  Vibrate,
+} from 'lucide-react';
 import {AudioService} from '../services/AudioService';
 import {LocationService} from '../services/LocationService';
 import {ShakeService} from '../services/ShakeService';
+import {SmsAlertService} from '../services/SmsAlertService';
+import {StorageService} from '../services/StorageService';
 
 type PermState = 'pending' | 'granted' | 'denied' | 'unsupported';
 
 interface PermissionsWizardProps {
   onComplete: () => void;
   compact?: boolean;
+  phoneAndSmsGranted?: boolean;
+  onPhoneSmsPermissionChange?: (granted: boolean) => void;
 }
 
 export const PermissionsWizard: React.FC<PermissionsWizardProps> = ({
   onComplete,
   compact = false,
+  phoneAndSmsGranted,
+  onPhoneSmsPermissionChange,
 }) => {
   const [step, setStep] = useState<number>(0);
   const [locState, setLocState] = useState<PermState>('pending');
+  const [phoneSmsState, setPhoneSmsState] = useState<PermState>(() => {
+    const initial =
+      typeof phoneAndSmsGranted === 'boolean'
+        ? phoneAndSmsGranted
+        : StorageService.getSettings().phoneAndSmsPermissionGranted;
+    return initial ? 'granted' : 'pending';
+  });
   const [motionState, setMotionState] = useState<PermState>('pending');
   const [notifState, setNotifState] = useState<PermState>('pending');
   const [vibState, setVibState] = useState<PermState>('pending');
   const [statusNote, setStatusNote] = useState<string>('');
 
   useEffect(() => {
-    // Inspect existing browser permission states without prompting prematurely
+    // Inspect existing browser & native permission states without prompting prematurely
     if (typeof navigator !== 'undefined' && 'permissions' in navigator) {
       navigator.permissions
         .query({name: 'geolocation'})
@@ -33,6 +54,15 @@ export const PermissionsWizard: React.FC<PermissionsWizardProps> = ({
         })
         .catch(() => {});
     }
+
+    const savedFlag =
+      typeof phoneAndSmsGranted === 'boolean'
+        ? phoneAndSmsGranted
+        : StorageService.getSettings().phoneAndSmsPermissionGranted;
+
+    void SmsAlertService.checkDefaultPhoneAndMessagesPermission(savedFlag).then((res) => {
+      setPhoneSmsState(res);
+    });
 
     if (!ShakeService.isSupported()) {
       setMotionState('unsupported');
@@ -51,7 +81,7 @@ export const PermissionsWizard: React.FC<PermissionsWizardProps> = ({
     if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') {
       setVibState('unsupported');
     }
-  }, []);
+  }, [phoneAndSmsGranted]);
 
   const requestLocation = async () => {
     setStatusNote('Requesting GPS coordinates...');
@@ -67,6 +97,21 @@ export const PermissionsWizard: React.FC<PermissionsWizardProps> = ({
           : 'Location permission denied. You can enable it later in browser settings.',
       );
     }
+  };
+
+  const requestPhoneAndMessages = async () => {
+    setStatusNote('Requesting Phone & Default Messages access...');
+    const res = await SmsAlertService.requestDefaultPhoneAndMessagesPermission();
+    const granted = res.state === 'granted';
+    setPhoneSmsState(res.state);
+    setStatusNote(res.message);
+
+    const latest = StorageService.getSettings();
+    StorageService.saveSettings({
+      ...latest,
+      phoneAndSmsPermissionGranted: granted,
+    });
+    onPhoneSmsPermissionChange?.(granted);
   };
 
   const requestMotion = async () => {
@@ -117,15 +162,27 @@ export const PermissionsWizard: React.FC<PermissionsWizardProps> = ({
     {
       key: 'location',
       title: '1. Live & Offline GPS Location',
-      desc: 'Caches your last coordinates continuously so offline SOS texts include a Google Maps pin.',
+      desc: 'Caches your last coordinates continuously so SOS alerts always include a Google Maps pin.',
       icon: MapPin,
       state: locState,
       actionLabel: locState === 'granted' ? 'Location Ready' : 'Enable GPS Location',
       onAction: requestLocation,
     },
     {
+      key: 'phone_sms',
+      title: '2. Default Phone & Messages App Access',
+      desc: 'Authorizes Safe Her to share live location automatically to all stored emergency contacts via SMS/Messenger without asking you to tap Send, and dial 112 / 1091 quickly.',
+      icon: MessageSquare,
+      state: phoneSmsState,
+      actionLabel:
+        phoneSmsState === 'granted'
+          ? 'Phone & Messages Authorized'
+          : 'Allow Phone & Messages Access',
+      onAction: requestPhoneAndMessages,
+    },
+    {
       key: 'motion',
-      title: '2. Motion Sensor (Shake-to-Alert)',
+      title: '3. Motion Sensor (Shake-to-Alert)',
       desc: 'Detects 3 hard shakes in 2 seconds while Safe Her is open to start the SOS countdown.',
       icon: Compass,
       state: motionState,
@@ -139,7 +196,7 @@ export const PermissionsWizard: React.FC<PermissionsWizardProps> = ({
     },
     {
       key: 'notifications',
-      title: '3. Alert Notifications',
+      title: '4. Alert Notifications',
       desc: 'Shows confirmation banners during delayed Fake Calls and active live location sharing.',
       icon: Bell,
       state: notifState,
@@ -153,7 +210,7 @@ export const PermissionsWizard: React.FC<PermissionsWizardProps> = ({
     },
     {
       key: 'vibration',
-      title: '4. Haptic Vibration Feedback',
+      title: '5. Haptic Vibration Feedback',
       desc: 'Vibrates discreetly during SOS countdowns and incoming Fake Calls on supported phones.',
       icon: Vibrate,
       state: vibState,
@@ -180,7 +237,7 @@ export const PermissionsWizard: React.FC<PermissionsWizardProps> = ({
   return (
     <div className={compact ? 'space-y-4' : 'space-y-5'}>
       {/* Step selector tabs */}
-      <div className="grid grid-cols-4 gap-1.5 surface-well p-1 rounded-xl">
+      <div className="grid grid-cols-5 gap-1.5 surface-well p-1 rounded-xl">
         {items.map((item, idx) => (
           <button
             key={item.key}
@@ -211,7 +268,7 @@ export const PermissionsWizard: React.FC<PermissionsWizardProps> = ({
           </div>
           <div className="min-w-0 flex-1">
             <div className="text-xs text-slate-500">
-              <span>Step {step + 1} of 4</span>
+              <span>Step {step + 1} of {items.length}</span>
               <span aria-hidden="true"> · </span>
               <span
                 className={
@@ -242,7 +299,7 @@ export const PermissionsWizard: React.FC<PermissionsWizardProps> = ({
             onClick={activeItem.onAction}
             className="flex-1 min-h-[48px] px-4 py-2.5 rounded-xl btn-white text-sm font-semibold active:scale-[0.99] transition-all flex items-center justify-center gap-2 whitespace-nowrap"
           >
-            <Smartphone className="w-4 h-4" />
+            <Smartphone className="w-4 h-4 shrink-0" />
             <span>{activeItem.actionLabel}</span>
           </button>
 
@@ -275,7 +332,10 @@ export const PermissionsWizard: React.FC<PermissionsWizardProps> = ({
           <button
             key={item.key}
             type="button"
-            onClick={() => setStep(idx)}
+            onClick={() => {
+              setStep(idx);
+              setStatusNote('');
+            }}
             className="w-full min-h-[48px] py-2.5 flex items-center justify-between text-left text-xs"
           >
             <span className="font-medium text-slate-800">{item.title}</span>
@@ -296,3 +356,4 @@ export const PermissionsWizard: React.FC<PermissionsWizardProps> = ({
     </div>
   );
 };
+

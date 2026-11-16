@@ -109,6 +109,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   sosPin: '1234',
   sirenEnabled: true,
   autoLiveShareOnSos: true,
+  phoneAndSmsPermissionGranted: false,
   shakeEnabled: true,
   shakeSensitivity: 'medium',
   multiPressEnabled: true,

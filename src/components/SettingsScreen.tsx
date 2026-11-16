@@ -183,6 +183,16 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
             <div className="pt-3 border-t border-red-200 text-xs space-y-1.5">
               <div className="flex items-center justify-between gap-2">
+                <span className="text-slate-700 font-medium">Login Phone &amp; Messages Authorization</span>
+                <span
+                  className={`font-semibold shrink-0 ${
+                    settings.phoneAndSmsPermissionGranted ? 'text-emerald-700' : 'text-amber-800'
+                  }`}
+                >
+                  {settings.phoneAndSmsPermissionGranted ? 'Authorized' : 'Pending Check'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
                 <span className="text-slate-700 font-medium">Real-Time Guardian Stream (Zero Prompt)</span>
                 <span className="font-semibold text-emerald-700 shrink-0">Ready</span>
               </div>
@@ -505,11 +515,18 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           {showPermissionsWizard ? (
             <PermissionsWizard
               compact
+              phoneAndSmsGranted={settings.phoneAndSmsPermissionGranted}
+              onPhoneSmsPermissionChange={(granted) =>
+                onUpdateSettings({
+                  ...settings,
+                  phoneAndSmsPermissionGranted: granted,
+                })
+              }
               onComplete={() => setShowPermissionsWizard(false)}
             />
           ) : (
             <p className="text-xs text-slate-500 leading-relaxed">
-              Verify or re-request Location, Motion Sensor (iOS), Notifications, and Haptic Vibration permissions step-by-step anytime.
+              Verify or re-request Location, Default Phone &amp; Messages Access, Motion Sensor (iOS), Notifications, and Haptic Vibration permissions step-by-step anytime.
             </p>
           )}
         </div>

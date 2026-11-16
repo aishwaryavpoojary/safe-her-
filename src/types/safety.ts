@@ -34,6 +34,7 @@ export interface AppSettings {
   sosPin: string;
   sirenEnabled: boolean;
   autoLiveShareOnSos: boolean;
+  phoneAndSmsPermissionGranted: boolean;
   shakeEnabled: boolean;
   shakeSensitivity: ShakeSensitivity;
   multiPressEnabled: boolean;

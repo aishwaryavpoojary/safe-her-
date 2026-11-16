@@ -1,6 +1,7 @@
 import React, {useState} from 'react';
-import {Lock, Plus, Shield, Trash2, UserPlus} from 'lucide-react';
-import {BUILT_IN_HELPLINES} from '../services/StorageService';
+import {Check, Lock, MessageSquare, PhoneCall, Plus, Shield, Trash2, UserPlus} from 'lucide-react';
+import {SmsAlertService} from '../services/SmsAlertService';
+import {BUILT_IN_HELPLINES, StorageService} from '../services/StorageService';
 import type {AppSettings, EmergencyContact} from '../types/safety';
 import {PermissionsWizard} from './PermissionsWizard';
 
@@ -20,12 +21,34 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const [stage, setStage] = useState<1 | 2 | 3>(1);
   const [userName, setUserName] = useState(initialSettings.userName || '');
   const [sosPin, setSosPin] = useState(initialSettings.sosPin || '1234');
+  const [phoneAndSmsGranted, setPhoneAndSmsGranted] = useState<boolean>(
+    initialSettings.phoneAndSmsPermissionGranted,
+  );
   const [contacts, setContacts] = useState<EmergencyContact[]>(initialTrustedContacts);
 
   const [draftName, setDraftName] = useState('');
   const [draftPhone, setDraftPhone] = useState('');
   const [draftRel, setDraftRel] = useState('Mom');
   const [formError, setFormError] = useState('');
+  const [permStatusMessage, setPermStatusMessage] = useState('');
+  const [requestingPhoneSms, setRequestingPhoneSms] = useState(false);
+
+  const handleGrantPhoneAndMessagesOnLogin = async () => {
+    setRequestingPhoneSms(true);
+    try {
+      const res = await SmsAlertService.requestDefaultPhoneAndMessagesPermission();
+      const granted = res.state === 'granted';
+      setPhoneAndSmsGranted(granted);
+      setPermStatusMessage(res.message);
+      const latest = StorageService.getSettings();
+      StorageService.saveSettings({
+        ...latest,
+        phoneAndSmsPermissionGranted: granted,
+      });
+    } finally {
+      setRequestingPhoneSms(false);
+    }
+  };
 
   const handleStage1Next = (e: React.FormEvent) => {
     e.preventDefault();
@@ -112,6 +135,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         ...initialSettings,
         userName: userName.trim(),
         sosPin,
+        phoneAndSmsPermissionGranted: phoneAndSmsGranted,
         onboarded: true,
       },
       contacts,
@@ -194,6 +218,56 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                   Prevents anyone else from silencing your siren or canceling an active SOS.
                 </p>
               </div>
+            </div>
+
+            {/* Login Permission Prompt: Default Phone & Messages App Access */}
+            <div className="rounded-3xl surface-red p-5 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl btn-red flex items-center justify-center shrink-0">
+                    <MessageSquare className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-bold text-slate-900">
+                      Default Phone &amp; Messages App Permission
+                    </h2>
+                    <p className="text-xs text-slate-700 mt-0.5 leading-relaxed">
+                      Allow access to your device&apos;s default Phone dialer (112/1091) and Messages/SMS transport so Safe Her shares your live location automatically to all emergency contacts without asking you to tap Send.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {permStatusMessage && (
+                <p className="text-xs text-red-900 bg-white/80 border border-red-200 rounded-xl px-3.5 py-2.5 leading-relaxed">
+                  {permStatusMessage}
+                </p>
+              )}
+
+              <button
+                type="button"
+                disabled={requestingPhoneSms}
+                onClick={handleGrantPhoneAndMessagesOnLogin}
+                className={`w-full min-h-[46px] px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                  phoneAndSmsGranted ? 'btn-white text-emerald-700' : 'btn-red'
+                }`}
+              >
+                {phoneAndSmsGranted ? (
+                  <>
+                    <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Phone &amp; Messages Access Authorized</span>
+                  </>
+                ) : (
+                  <>
+                    <PhoneCall className="w-4 h-4 shrink-0" />
+                    <span>
+                      {requestingPhoneSms
+                        ? 'Requesting Permission...'
+                        : 'Allow Default Phone & Messages Access'}
+                    </span>
+                  </>
+                )}
+              </button>
             </div>
 
             {formError && (
@@ -373,14 +447,18 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 className="font-display text-2xl font-bold text-slate-900 tracking-tight"
                 style={{textWrap: 'balance'}}
               >
-                Safety Sensor Permissions
+                Phone, Messages &amp; Safety Permissions
               </h1>
               <p className="text-sm text-slate-600 mt-1">
-                Walk through each capability below so GPS tracking, Shake-to-Alert, and offline alarms are ready before an emergency.
+                Grant GPS Location and Default Phone &amp; Messages app access below so live location shares automatically to all saved emergency contacts without asking you to tap Send.
               </p>
             </div>
 
-            <PermissionsWizard onComplete={completeAll} />
+            <PermissionsWizard
+              phoneAndSmsGranted={phoneAndSmsGranted}
+              onPhoneSmsPermissionChange={setPhoneAndSmsGranted}
+              onComplete={completeAll}
+            />
 
             <div className="flex items-center justify-between pt-1">
               <button

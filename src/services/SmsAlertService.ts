@@ -13,6 +13,14 @@ export interface NativeSmsTransportAdapter {
 
 interface CapacitorSmsPluginBridge {
   sendSilentSms(options: {recipients: string[]; message: string}): Promise<{sent?: number} | boolean>;
+  checkPermissions?(): Promise<{sms?: string; phone?: string}>;
+  requestPermissions?(): Promise<{sms?: string; phone?: string}>;
+}
+
+export interface DefaultPhoneSmsPermissionResult {
+  state: 'granted' | 'denied';
+  channel: 'native-android' | 'server-sms-relay' | 'guardian-web-fallback';
+  message: string;
 }
 
 export interface SmsDeliveryStatus {
@@ -99,6 +107,62 @@ class SmsAlertServiceClass {
     } catch {
       return {configured: false, provider: null};
     }
+  }
+
+  async checkDefaultPhoneAndMessagesPermission(
+    savedFlag: boolean,
+  ): Promise<'pending' | 'granted' | 'denied'> {
+    const capPlugin = this.getCapacitorSmsPlugin();
+    if (capPlugin && typeof capPlugin.checkPermissions === 'function') {
+      try {
+        const res = await capPlugin.checkPermissions();
+        if (res?.sms === 'granted') return 'granted';
+        if (res?.sms === 'denied') return 'denied';
+        return 'pending';
+      } catch {
+        // Fall back to saved setting
+      }
+    }
+    return savedFlag ? 'granted' : 'pending';
+  }
+
+  async requestDefaultPhoneAndMessagesPermission(): Promise<DefaultPhoneSmsPermissionResult> {
+    const capPlugin = this.getCapacitorSmsPlugin();
+    if (capPlugin && typeof capPlugin.requestPermissions === 'function') {
+      try {
+        const res = await capPlugin.requestPermissions();
+        const granted = res?.sms === 'granted';
+        return {
+          state: granted ? 'granted' : 'denied',
+          channel: 'native-android',
+          message: granted
+            ? 'Device Phone & Default Messages (SEND_SMS / CALL_PHONE) permission granted. Live location will send silently through your phone messenger without asking Send.'
+            : 'Phone & Messages runtime permission was declined in Android settings.',
+        };
+      } catch {
+        return {
+          state: 'denied',
+          channel: 'native-android',
+          message: 'Unable to open native Android Phone & Messages permission prompt.',
+        };
+      }
+    }
+
+    const serverSms = await this.getServerSmsStatus();
+    if (serverSms.configured) {
+      return {
+        state: 'granted',
+        channel: 'server-sms-relay',
+        message: `Authorized for zero-prompt automated SMS delivery (${serverSms.provider}) & Guardian Live Stream without opening a Send prompt.`,
+      };
+    }
+
+    return {
+      state: 'granted',
+      channel: 'guardian-web-fallback',
+      message:
+        'Authorized for zero-prompt Guardian Live Location auto-share & one-tap Phone dialing (112/1091). Note: Mobile browsers block websites from silently operating your device SMS app without a Send tap unless wrapped in the Android Capacitor APK or paired with a Server SMS Relay.',
+    };
   }
 
   private async trySendSilentDefaultMessenger(
