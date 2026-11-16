@@ -171,13 +171,15 @@ export const PermissionsWizard: React.FC<PermissionsWizardProps> = ({
     {
       key: 'phone_sms',
       title: '2. Default Phone & Messages App Access',
-      desc: 'Authorizes Safe Her to share live location automatically to all stored emergency contacts via SMS/Messenger without asking you to tap Send, and dial 112 / 1091 quickly.',
+      desc: 'In an Android Capacitor APK or Server SMS Relay build, authorizes zero-prompt automated carrier SMS. Standard web browsers block websites from requesting OS Phone/SMS permissions directly.',
       icon: MessageSquare,
       state: phoneSmsState,
       actionLabel:
         phoneSmsState === 'granted'
-          ? 'Phone & Messages Authorized'
-          : 'Allow Phone & Messages Access',
+          ? 'Phone & Messages Granted'
+          : phoneSmsState === 'unsupported'
+            ? 'Check Browser / APK Support'
+            : 'Allow Phone & Messages Access',
       onAction: requestPhoneAndMessages,
     },
     {
@@ -227,10 +229,12 @@ export const PermissionsWizard: React.FC<PermissionsWizardProps> = ({
   const activeItem = items[step];
   const ActiveIcon = activeItem.icon;
 
-  const formatStateLabel = (s: PermState) => {
+  const formatStateLabel = (s: PermState, key?: string) => {
     if (s === 'granted') return 'Ready';
     if (s === 'denied') return 'Blocked';
-    if (s === 'unsupported') return 'Fallback Ready';
+    if (s === 'unsupported') {
+      return key === 'phone_sms' ? 'Browser Restricted' : 'Fallback Ready';
+    }
     return 'Not checked';
   };
 
@@ -276,10 +280,12 @@ export const PermissionsWizard: React.FC<PermissionsWizardProps> = ({
                     ? 'text-emerald-700 font-medium'
                     : activeItem.state === 'denied'
                       ? 'text-red-700 font-medium'
-                      : 'text-slate-500'
+                      : activeItem.state === 'unsupported' && activeItem.key === 'phone_sms'
+                        ? 'text-amber-800 font-medium'
+                        : 'text-slate-500'
                 }
               >
-                {formatStateLabel(activeItem.state)}
+                {formatStateLabel(activeItem.state, activeItem.key)}
               </span>
             </div>
             <h3 className="text-base font-bold text-slate-900 mt-0.5">{activeItem.title}</h3>
@@ -345,10 +351,12 @@ export const PermissionsWizard: React.FC<PermissionsWizardProps> = ({
                   ? 'text-emerald-700 font-semibold'
                   : item.state === 'denied'
                     ? 'text-red-700 font-semibold'
-                    : 'text-slate-500'
+                    : item.state === 'unsupported' && item.key === 'phone_sms'
+                      ? 'text-amber-800 font-semibold'
+                      : 'text-slate-500'
               }
             >
-              {formatStateLabel(item.state)}
+              {formatStateLabel(item.state, item.key)}
             </span>
           </button>
         ))}

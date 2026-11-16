@@ -31,6 +31,9 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const [draftRel, setDraftRel] = useState('Mom');
   const [formError, setFormError] = useState('');
   const [permStatusMessage, setPermStatusMessage] = useState('');
+  const [permState, setPermState] = useState<'pending' | 'granted' | 'denied' | 'unsupported'>(() =>
+    initialSettings.phoneAndSmsPermissionGranted ? 'granted' : 'pending',
+  );
   const [requestingPhoneSms, setRequestingPhoneSms] = useState(false);
 
   const handleGrantPhoneAndMessagesOnLogin = async () => {
@@ -38,6 +41,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     try {
       const res = await SmsAlertService.requestDefaultPhoneAndMessagesPermission();
       const granted = res.state === 'granted';
+      setPermState(res.state);
       setPhoneAndSmsGranted(granted);
       setPermStatusMessage(res.message);
       const latest = StorageService.getSettings();
@@ -239,7 +243,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
               </div>
 
               {permStatusMessage && (
-                <p className="text-xs text-red-900 bg-white/80 border border-red-200 rounded-xl px-3.5 py-2.5 leading-relaxed">
+                <p
+                  className={`text-xs rounded-xl px-3.5 py-2.5 leading-relaxed border ${
+                    permState === 'granted'
+                      ? 'text-emerald-900 bg-emerald-50 border-emerald-200'
+                      : 'text-amber-950 bg-amber-50 border-amber-200'
+                  }`}
+                >
                   {permStatusMessage}
                 </p>
               )}
@@ -249,21 +259,23 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 disabled={requestingPhoneSms}
                 onClick={handleGrantPhoneAndMessagesOnLogin}
                 className={`w-full min-h-[46px] px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
-                  phoneAndSmsGranted ? 'btn-white text-emerald-700' : 'btn-red'
+                  permState === 'granted' ? 'btn-white text-emerald-700' : 'btn-red'
                 }`}
               >
-                {phoneAndSmsGranted ? (
+                {permState === 'granted' ? (
                   <>
                     <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>Phone &amp; Messages Access Authorized</span>
+                    <span>Phone &amp; Messages Access Granted</span>
                   </>
                 ) : (
                   <>
                     <PhoneCall className="w-4 h-4 shrink-0" />
                     <span>
                       {requestingPhoneSms
-                        ? 'Requesting Permission...'
-                        : 'Allow Default Phone & Messages Access'}
+                        ? 'Checking Device Capability...'
+                        : permState === 'unsupported'
+                          ? 'Browser Restricted · Check Requirements'
+                          : 'Allow Default Phone & Messages Access'}
                     </span>
                   </>
                 )}

@@ -18,8 +18,8 @@ interface CapacitorSmsPluginBridge {
 }
 
 export interface DefaultPhoneSmsPermissionResult {
-  state: 'granted' | 'denied';
-  channel: 'native-android' | 'server-sms-relay' | 'guardian-web-fallback';
+  state: 'granted' | 'denied' | 'unsupported';
+  channel: 'native-android' | 'server-sms-relay' | 'browser-unsupported';
   message: string;
 }
 
@@ -111,7 +111,7 @@ class SmsAlertServiceClass {
 
   async checkDefaultPhoneAndMessagesPermission(
     savedFlag: boolean,
-  ): Promise<'pending' | 'granted' | 'denied'> {
+  ): Promise<'pending' | 'granted' | 'denied' | 'unsupported'> {
     const capPlugin = this.getCapacitorSmsPlugin();
     if (capPlugin && typeof capPlugin.checkPermissions === 'function') {
       try {
@@ -120,10 +120,16 @@ class SmsAlertServiceClass {
         if (res?.sms === 'denied') return 'denied';
         return 'pending';
       } catch {
-        // Fall back to saved setting
+        // Fall through to server / browser check
       }
     }
-    return savedFlag ? 'granted' : 'pending';
+
+    const serverSms = await this.getServerSmsStatus();
+    if (serverSms.configured) {
+      return savedFlag ? 'granted' : 'pending';
+    }
+
+    return 'unsupported';
   }
 
   async requestDefaultPhoneAndMessagesPermission(): Promise<DefaultPhoneSmsPermissionResult> {
@@ -153,15 +159,15 @@ class SmsAlertServiceClass {
       return {
         state: 'granted',
         channel: 'server-sms-relay',
-        message: `Authorized for zero-prompt automated SMS delivery (${serverSms.provider}) & Guardian Live Stream without opening a Send prompt.`,
+        message: `Automated Server SMS Relay (${serverSms.provider}) is active: SOS and Live Location will deliver SMS automatically to your emergency contacts without any Send prompt.`,
       };
     }
 
     return {
-      state: 'granted',
-      channel: 'guardian-web-fallback',
+      state: 'unsupported',
+      channel: 'browser-unsupported',
       message:
-        'Authorized for zero-prompt Guardian Live Location auto-share & one-tap Phone dialing (112/1091). Note: Mobile browsers block websites from silently operating your device SMS app without a Send tap unless wrapped in the Android Capacitor APK or paired with a Server SMS Relay.',
+        'Web browsers (Chrome, Safari, Firefox) cannot trigger Android/iOS OS permissions for Default Phone or Messages (SEND_SMS) and block silent SMS from web pages without tapping Send. Real zero-prompt carrier SMS requires packaging Safe Her as an Android Capacitor APK or configuring Twilio/SMS Webhook on the server; Guardian Live Stream remains active automatically in this browser.',
     };
   }
 

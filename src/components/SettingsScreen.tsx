@@ -210,13 +210,23 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
             <div className="pt-3 border-t border-red-200 text-xs space-y-1.5">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-slate-700 font-medium">Login Phone &amp; Messages Authorization</span>
+                <span className="text-slate-700 font-medium">OS Phone &amp; Messages Permission</span>
                 <span
                   className={`font-semibold shrink-0 ${
-                    settings.phoneAndSmsPermissionGranted ? 'text-emerald-700' : 'text-amber-800'
+                    SmsAlertService.isNativeMessengerPluginConnected() &&
+                    settings.phoneAndSmsPermissionGranted
+                      ? 'text-emerald-700'
+                      : serverSmsStatus.configured
+                        ? 'text-emerald-700'
+                        : 'text-amber-800'
                   }`}
                 >
-                  {settings.phoneAndSmsPermissionGranted ? 'Authorized' : 'Pending Check'}
+                  {SmsAlertService.isNativeMessengerPluginConnected() &&
+                  settings.phoneAndSmsPermissionGranted
+                    ? 'Android OS Granted'
+                    : serverSmsStatus.configured
+                      ? 'Server SMS Active'
+                      : 'Browser Blocked (APK Needed)'}
                 </span>
               </div>
               <div className="flex items-center justify-between gap-2">
