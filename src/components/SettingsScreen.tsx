@@ -5,8 +5,10 @@ import {
   Code2,
   ExternalLink,
   History,
+  LogOut,
   ShieldCheck,
   Trash2,
+  X,
 } from 'lucide-react';
 import {ShakeService} from '../services/ShakeService';
 import {SmsAlertService} from '../services/SmsAlertService';
@@ -21,6 +23,7 @@ interface SettingsScreenProps {
   sosLogs: SOSLogEntry[];
   onUpdateSettings: (next: AppSettings) => void;
   onClearLogs: () => void;
+  onLogout: (wipeAllData: boolean) => Promise<void>;
 }
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({
@@ -28,11 +31,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   sosLogs,
   onUpdateSettings,
   onClearLogs,
+  onLogout,
 }) => {
   const [nameDraft, setNameDraft] = useState(settings.userName);
   const [pinDraft, setPinDraft] = useState(settings.sosPin);
   const [profileSaved, setProfileSaved] = useState(false);
   const [profileError, setProfileError] = useState('');
+  const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   // Live Shake Sensor Test state
   const [testingShake, setTestingShake] = useState(false);
@@ -100,17 +106,27 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
       {/* Left Column: Profile, Triggers & Native Capacitor Hook Spec */}
       <section className="lg:col-span-7 space-y-6">
-        <div>
-          <p className="text-xs text-slate-500">Offline Device Preferences</p>
-          <h1 className="font-display text-2xl font-bold text-slate-900 tracking-tight mt-0.5">
-            Safety Settings &amp; Triggers
-          </h1>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs text-slate-500">Offline Device Preferences</p>
+            <h1 className="font-display text-2xl font-bold text-slate-900 tracking-tight mt-0.5">
+              Safety Settings &amp; Triggers
+            </h1>
+          </div>
+          <button
+            type="button"
+            onClick={() => setConfirmLogoutOpen(true)}
+            className="min-h-[42px] px-3.5 rounded-xl btn-white text-xs font-semibold text-red-700 flex items-center gap-1.5 whitespace-nowrap shrink-0"
+          >
+            <LogOut className="w-4 h-4 shrink-0" />
+            <span>Log Out</span>
+          </button>
         </div>
 
         {/* PWA Install Prompt Card */}
         <PWAInstallButton variant="card" />
 
-        {/* Profile & 4-Digit SOS PIN */}
+        {/* Profile, 4-Digit SOS PIN & Privacy Logout */}
         <form
           onSubmit={handleSaveProfile}
           className="rounded-3xl surface-white p-5 space-y-4"
@@ -150,13 +166,24 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
           {profileError && <p className="text-xs text-red-700">{profileError}</p>}
 
-          <button
-            type="submit"
-            className="min-h-[46px] px-5 rounded-xl btn-red text-xs font-semibold flex items-center gap-1.5 transition-all"
-          >
-            {profileSaved ? <Check className="w-4 h-4" /> : null}
-            <span>{profileSaved ? 'Saved Locally' : 'Save Name & PIN'}</span>
-          </button>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <button
+              type="submit"
+              className="min-h-[46px] px-5 rounded-xl btn-red text-xs font-semibold flex items-center gap-1.5 transition-all"
+            >
+              {profileSaved ? <Check className="w-4 h-4" /> : null}
+              <span>{profileSaved ? 'Saved Locally' : 'Save Name & PIN'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setConfirmLogoutOpen(true)}
+              className="min-h-[46px] px-4 rounded-xl btn-white text-xs font-semibold text-red-700 flex items-center gap-1.5 transition-all"
+            >
+              <LogOut className="w-4 h-4 shrink-0" />
+              <span>Privacy Log Out</span>
+            </button>
+          </div>
         </form>
 
         {/* Siren, Automated SOS Live Location & Shake-to-Alert Controls */}
@@ -612,6 +639,78 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           )}
         </div>
       </section>
+
+      {/* Centered Privacy Logout Dialog */}
+      {confirmLogoutOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="logout-dialog-title"
+        >
+          <div className="w-full max-w-md rounded-3xl surface-white p-6 space-y-4 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 id="logout-dialog-title" className="font-display text-lg font-bold text-slate-900">
+                  Log Out &amp; Restart From Beginning
+                </h2>
+                <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                  Stops any active GPS sharing and motion triggers, clears cached location, SOS history, and resets your profile, PIN, and Phone/Messages permissions back to the login screen.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={loggingOut}
+                onClick={() => setConfirmLogoutOpen(false)}
+                className="min-h-[44px] min-w-[44px] -mt-2 -mr-2 flex items-center justify-center rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100"
+                aria-label="Close logout dialog"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2.5 pt-1">
+              <button
+                type="button"
+                disabled={loggingOut}
+                onClick={async () => {
+                  setLoggingOut(true);
+                  await onLogout(true);
+                }}
+                className="w-full min-h-[48px] px-4 rounded-xl btn-red text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60"
+              >
+                <LogOut className="w-4 h-4 shrink-0" />
+                <span>
+                  {loggingOut
+                    ? 'Resetting App...'
+                    : 'Log Out & Start From Beginning (Erase All Data)'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                disabled={loggingOut}
+                onClick={async () => {
+                  setLoggingOut(true);
+                  await onLogout(false);
+                }}
+                className="w-full min-h-[46px] px-4 rounded-xl btn-white text-xs font-semibold disabled:opacity-60"
+              >
+                Log Out (Keep Trusted Contacts)
+              </button>
+
+              <button
+                type="button"
+                disabled={loggingOut}
+                onClick={() => setConfirmLogoutOpen(false)}
+                className="w-full min-h-[42px] px-4 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -102,27 +102,31 @@ export const BUILT_IN_HELPLINES: EmergencyContact[] = [
   },
 ];
 
-export const DEFAULT_SETTINGS: AppSettings = {
-  userId: `usr_${Math.random().toString(36).slice(2, 10)}`,
-  userName: '',
-  onboarded: false,
-  sosPin: '1234',
-  sirenEnabled: true,
-  autoLiveShareOnSos: true,
-  phoneAndSmsPermissionGranted: false,
-  shakeEnabled: true,
-  shakeSensitivity: 'medium',
-  multiPressEnabled: true,
-  multiPressVolumeKeys: true,
-  multiPressScreenWake: true,
-  multiPressLogoTripleTap: true,
-  multiPressAction: 'sos',
-  defaultFakeCaller: 'Mom',
-  customFakeCallerName: 'Priya (Roommate)',
-  customFakeCallerPhone: '+91 98201 44120',
-  defaultRingtone: 'classic',
-  defaultFakeCallDelay: 0,
-};
+export function createFreshDefaultSettings(): AppSettings {
+  return {
+    userId: `usr_${Math.random().toString(36).slice(2, 10)}`,
+    userName: '',
+    onboarded: false,
+    sosPin: '1234',
+    sirenEnabled: true,
+    autoLiveShareOnSos: true,
+    phoneAndSmsPermissionGranted: false,
+    shakeEnabled: true,
+    shakeSensitivity: 'medium',
+    multiPressEnabled: true,
+    multiPressVolumeKeys: true,
+    multiPressScreenWake: true,
+    multiPressLogoTripleTap: true,
+    multiPressAction: 'sos',
+    defaultFakeCaller: 'Mom',
+    customFakeCallerName: 'Priya (Roommate)',
+    customFakeCallerPhone: '+91 98201 44120',
+    defaultRingtone: 'classic',
+    defaultFakeCallDelay: 0,
+  };
+}
+
+export const DEFAULT_SETTINGS: AppSettings = createFreshDefaultSettings();
 
 const DB_NAME = 'safe_her_offline_db';
 const DB_VERSION = 1;
@@ -375,6 +379,65 @@ class StorageServiceClass {
       // Ignore
     }
     void this.idbSet(LS_KEYS.nearbyCache, bundle);
+  }
+
+  private async idbDelete(key: string): Promise<void> {
+    const db = await this.openDB();
+    if (!db) return;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction(STORE_KV, 'readwrite');
+        tx.objectStore(STORE_KV).delete(key);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      } catch {
+        resolve();
+      }
+    });
+  }
+
+  /**
+   * Logs out and clears sensitive session traces (cached GPS coordinates, SOS history logs,
+   * nearby search cache, pending dispatches, and Phone/Messages authorization).
+   * When `wipeContacts` is true, also erases all saved personal trusted contacts.
+   */
+  async clearPrivacySession(options: {wipeContacts?: boolean} = {}): Promise<AppSettings> {
+    const keysToRemove = [
+      LS_KEYS.lastLocation,
+      LS_KEYS.sosLogs,
+      LS_KEYS.nearbyCache,
+      'safeher_pending_dispatches_v1',
+      'safeher_guardian_watch_phone_v1',
+    ];
+
+    if (options.wipeContacts) {
+      keysToRemove.push(LS_KEYS.contacts, LS_KEYS.settings);
+    }
+
+    for (const key of keysToRemove) {
+      try {
+        localStorage.removeItem(key);
+      } catch {
+        // Ignore storage error
+      }
+    }
+
+    await Promise.all([
+      this.idbDelete(LS_KEYS.lastLocation),
+      this.idbDelete(LS_KEYS.sosLogs),
+      this.idbDelete(LS_KEYS.nearbyCache),
+      ...(options.wipeContacts
+        ? [this.idbDelete(LS_KEYS.contacts), this.idbDelete(LS_KEYS.settings)]
+        : []),
+    ]);
+
+    const freshSettings = createFreshDefaultSettings();
+    if (!options.wipeContacts) {
+      // Preserve notification/motion/fake-call preferences only when explicitly keeping contacts,
+      // while resetting identity, PIN, Phone/SMS authorization, and logged-in session state.
+      this.saveSettings(freshSettings);
+    }
+    return freshSettings;
   }
 }
 

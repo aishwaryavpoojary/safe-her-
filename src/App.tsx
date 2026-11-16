@@ -468,6 +468,42 @@ export default function App() {
     setAllContacts(StorageService.getAllContacts());
   };
 
+  const handleLogout = useCallback(
+    async (wipeAllData: boolean) => {
+      pendingGpsCatchupRef.current = false;
+      cancelScheduledFakeCall();
+      setActiveFakeCall(null);
+      setCountdownSource(null);
+      setSosActive(false);
+      setActiveSosLogId(null);
+      setDispatchResult(null);
+      setLogoTapHint('');
+      setCopiedBannerLink(false);
+      AudioService.stopSiren();
+      AudioService.stopSOSVibration();
+      ShakeService.stop();
+      TriggerService.detachAll();
+      LocationService.stopContinuousWatch();
+      await LocationService.stopLiveSession();
+      setLiveSession(null);
+
+      const nextSettings = await StorageService.clearPrivacySession({
+        wipeContacts: wipeAllData,
+      });
+      setSettings(nextSettings);
+      setAllContacts(StorageService.getAllContacts());
+      setCoords(null);
+      setGeoError('');
+      setSosLogs([]);
+      setActiveTab('home');
+      if (typeof window !== 'undefined') {
+        window.history.replaceState({}, '', '/');
+        window.scrollTo(0, 0);
+      }
+    },
+    [cancelScheduledFakeCall],
+  );
+
   const handleLogoPanicTap = () => {
     const count = TriggerService.registerLogoTap();
     if (count === 1 || count === 2) {
@@ -511,6 +547,7 @@ export default function App() {
   if (!settings.onboarded) {
     return (
       <OnboardingFlow
+        key={settings.userId}
         initialSettings={settings}
         initialTrustedContacts={allContacts.filter((c) => !c.builtIn)}
         onFinish={(completedSettings, trustedContacts) => {
@@ -518,6 +555,9 @@ export default function App() {
           StorageService.saveTrustedContacts(trustedContacts);
           setSettings(completedSettings);
           setAllContacts(StorageService.getAllContacts());
+          if (typeof window !== 'undefined') {
+            window.scrollTo(0, 0);
+          }
         }}
       />
     );
@@ -695,6 +735,7 @@ export default function App() {
               StorageService.clearSOSLogs();
               setSosLogs([]);
             }}
+            onLogout={handleLogout}
           />
         )}
       </main>

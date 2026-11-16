@@ -355,9 +355,10 @@ class LocationServiceClass {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({active: false}),
+          signal: AbortSignal.timeout(1500),
         });
       } catch {
-        // Ignore network error on session stop
+        // Ignore network error or timeout on session stop
       }
     }
   }
